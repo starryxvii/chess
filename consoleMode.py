@@ -3,7 +3,8 @@
 from bot import botMove, scoreMoveForEnemy
 from gameLogic import (
     newBoard, isKingSafe, detectCheckmate, detectStalemate, moveValidate, movePiece,
-    findSquare, castle, promotePawn, checkCheckmateOrStalemate
+    findSquare, castle, promotePawn, checkCheckmateOrStalemate, castleValidate,
+    castle_start_positions
 )
 
 from colorama import init as colorama_init, Fore, Style
@@ -121,6 +122,26 @@ def prompt_promotion() -> str:
 def adjust_prune_rate(skill_score: float, base: float = 0.30) -> float:
     return max(0.10, min(1.00, base - (skill_score / 100.0)))
 
+
+def _new_castling_rights():
+    return {"player": True, "bot": True}
+
+
+def _update_castling_rights(castling_rights, botWhite, board_before, board_after):
+    rights = dict(castling_rights)
+    for side in ("player", "bot"):
+        if not rights.get(side, False):
+            continue
+        layout = castle_start_positions(botWhite, side)
+        king_piece, king_pos = layout["king"]
+        rook_piece, rook_pos = layout["rook"]
+        if board_before[king_pos] != king_piece or board_after[king_pos] != king_piece:
+            rights[side] = False
+            continue
+        if board_before[rook_pos] != rook_piece or board_after[rook_pos] != rook_piece:
+            rights[side] = False
+    return rights
+
 # -------------------------------
 # Game loop
 # -------------------------------
@@ -128,6 +149,7 @@ def adjust_prune_rate(skill_score: float, base: float = 0.30) -> float:
 def startGame(botWhite: bool = True):
     board = newBoard(botWhite)
     gameStates = [board]
+    castlingRights = _new_castling_rights()
     turn = "bot" if botWhite else "player"
     other = "player" if turn == "bot" else "bot"
     pruneRate = 0.30
@@ -139,6 +161,7 @@ def startGame(botWhite: bool = True):
     if turn == "bot":
         mv = botMove(board, turn, gameStates, botWhite, pruneRate=pruneRate)
         if mv is not None and isKingSafe(mv, turn):
+            castlingRights = _update_castling_rights(castlingRights, botWhite, board, mv)
             board = mv
             gameStates.append(board)
             turn, other = other, turn
@@ -161,6 +184,7 @@ def startGame(botWhite: bool = True):
         if turn == "bot":
             mv = botMove(board, turn, gameStates, botWhite, pruneRate=pruneRate)
             if mv is not None and isKingSafe(mv, turn):
+                castlingRights = _update_castling_rights(castlingRights, botWhite, board, mv)
                 board = mv
                 gameStates.append(board)
                 outcome = checkCheckmateOrStalemate(board, 'bot', botWhite, gameStates)
@@ -195,8 +219,12 @@ def startGame(botWhite: bool = True):
         piece, dest_idx, _ = parsed
 
         if piece == "__castle__":
+            if not castleValidate(botWhite, turn, board, castlingRights):
+                print("Castling not allowed in current position.")
+                continue
             newb = castle(turn, board, botWhite)
             if newb != board:
+                castlingRights = _update_castling_rights(castlingRights, botWhite, board, newb)
                 board = newb
                 gameStates.append(board)
                 turn, other = other, turn
@@ -214,6 +242,7 @@ def startGame(botWhite: bool = True):
             continue
 
         # Apply move
+        castlingRights = _update_castling_rights(castlingRights, botWhite, board, testBoard)
         board = testBoard
 
         # Promotion

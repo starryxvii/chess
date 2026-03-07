@@ -1,69 +1,106 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Chess Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}?v={{ asset_v }}">
+    <script defer src="{{ url_for('static', filename='tailwind.config.js') }}?v={{ asset_v }}"></script>
     <script defer src="{{ url_for('static', filename='scripts.js') }}?v={{ asset_v }}"></script>
 </head>
-<body data-turn="{{ turn }}" data-botwhite="{{ 'true' if botWhite else 'false' }}">
-    <div class="container">
-        <div class="chess-container">
-            <div class="board-container">
-                <table class="chess-board">
-                    {% for i in range(8) %}
-                    <tr>
-                        {% for j in range(8) %}
-                        <td id="cell-{{ i*8 + j }}" class="{{ 'black' if (i+j) % 2 else 'white' }}">
-                            {% if board[i*8 + j] %}
-                            <img src="/static/icons/{{ board[i*8 + j][0].lower() }}.svg" class="piece {{ 'black-piece' if board[i*8 + j][0].isupper() else 'white-piece' }}" alt="{{ board[i*8 + j] }}">
-                            {% endif %}
-                        </td>
-                        {% endfor %}
-                    </tr>
-                    {% endfor %}
-                </table>
-            </div>
-            <div class="info-container">
-                <h1>Chess</h1>
-                <h2 id="by-section">
-                By
-                <a href="https://github.com/ishsharm0" target="_blank" rel="noopener noreferrer" class="github-link" data-url="https://github.com/ishsharm0"></a>
-                &
-                <a href="https://github.com/rosharma719" target="_blank" rel="noopener noreferrer" class="github-link" data-url="https://github.com/rosharma719"></a>
-                </h2>
-
-                {% for message, category in get_flashed_messages(with_categories=true) %}
-                <div class="alert alert-{{ category }}">{{ message }}</div>
-                {% endfor %}
-                <div class="controls">
-                    {% if promote %}
-                    <form action="{{ url_for('active') }}" method="post" class="promotion-form">
-                        <label for="promotion_piece">Promote to:</label>
-                        <select name="promotion_piece" id="promotion_piece" class="promotion-dropdown">
-                            <option value="QUEEN">Queen</option>
-                            <option value="ROOK">Rook</option>
-                            <option value="BISHOP">Bishop</option>
-                            <option value="KNIGHT">Knight</option>
-                        </select>
-                        <button type="submit">Promote</button>
-                    </form>
-                    {% else %}
-                    <div id="move-controls">
-                        <!-- Keep inline handlers if you like; scripts.js also binds by ID -->
-                        <button id="btn-castle" type="button" onclick="castleMove();">Castle</button>
-                        <button id="btn-reset" type="button" onclick="resetGame();">Reset Game</button>
+<body data-turn="{{ turn }}" data-botwhite="{{ 'true' if botWhite else 'false' }}" class="min-h-screen bg-[#ebe4d8] font-display text-ink antialiased">
+    <div class="mx-auto w-full max-w-[1180px] px-4 py-4 sm:px-5 sm:py-8">
+        <div class="rounded-[28px] border border-black/5 bg-white p-4 shadow-white sm:p-6">
+            <section class="mb-6 border-b border-black/8 pb-5">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div class="space-y-2">
+                        <h1 class="text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">Chess</h1>
+                        <p class="max-w-2xl text-sm leading-7 text-muted sm:text-[0.95rem]">A Python-based chess game where you can play against a bot that matches your skill level adaptively.</p>
                     </div>
-                    {% endif %}
+                    <div class="flex flex-wrap gap-2 text-sm text-muted">
+                        <span>By</span>
+                        <a href="https://github.com/ishsharm0" target="_blank" rel="noopener noreferrer" class="github-link font-semibold text-accentDark transition hover:text-ink" data-url="https://github.com/ishsharm0"></a>
+                        <span>&</span>
+                        <a href="https://github.com/rosharma719" target="_blank" rel="noopener noreferrer" class="github-link font-semibold text-accentDark transition hover:text-ink" data-url="https://github.com/rosharma719"></a>
+                        <span class="text-black/20">•</span>
+                        <a href="https://github.com/ishsharm0/chess" target="_blank" rel="noopener noreferrer" class="github-link font-semibold text-accentDark transition hover:text-ink" data-url="https://github.com/ishsharm0/chess">GitHub</a>
+                    </div>
                 </div>
-                <div class="instructions">
-                    <p>Point and click! Use the Castle button to castle.</p>
-                    <p class="turn-display">Current turn: <span>{{ turn }}</span></p>
-                </div>
+            </section>
+
+            <div class="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+                <section>
+                    <div class="rounded-[24px] border border-black/8 bg-shellSoft p-4 shadow-card sm:p-5">
+                        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                                <p class="text-lg font-semibold">Board</p>
+                            </div>
+                            <div class="status-chip turn-display inline-flex w-fit items-center rounded-full border border-black/8 bg-white/65 px-4 py-2 text-sm font-semibold text-accentDark">Turn: <span class="ml-1 capitalize">{{ turn }}</span></div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="chess-board mx-auto border-collapse overflow-hidden rounded-[22px] border-[8px] border-[#4a3428] bg-[#4a3428]" aria-label="Chess board">
+                                {% for i in range(8) %}
+                                <tr>
+                                    {% for j in range(8) %}
+                                    <td id="cell-{{ i*8 + j }}" class="{{ 'black' if (i+j) % 2 else 'white' }}" data-index="{{ i*8 + j }}">
+                                        {% if board[i*8 + j] %}
+                                        <img src="/static/icons/{{ board[i*8 + j][0].lower() }}.svg" class="piece {{ 'black-piece' if board[i*8 + j][0].isupper() else 'white-piece' }}" alt="{{ board[i*8 + j] }}">
+                                        {% endif %}
+                                    </td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <aside class="grid gap-4">
+                    <section class="panel-card rounded-[24px] border border-black/8 bg-white/55 p-5 shadow-card">
+                        <h2 class="text-base font-semibold text-ink">Status</h2>
+                        <h2 class="panel-title text-[1.5rem] font-semibold leading-[1.1]" id="status-title">{% if game_over %}Game over{% elif promote %}Promotion required{% elif turn == 'player' %}Your move{% else %}Bot is thinking{% endif %}</h2>
+                        <p class="panel-copy text-sm leading-7 text-muted" id="status-copy">{% if game_over %}Start a fresh game to play again.{% elif promote %}Choose a piece to finish the move.{% elif turn == 'player' %}Select one of your pieces, then click the destination square.{% else %}Waiting for the engine to reply.{% endif %}</p>
+                        {% for message, category in get_flashed_messages(with_categories=true) %}
+                        <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ message }}</div>
+                        {% endfor %}
+                    </section>
+
+                    <section class="panel-card rounded-[24px] border border-black/8 bg-white/55 px-5 py-4 shadow-card">
+                        <h2 class="text-base font-semibold text-ink">Controls</h2>
+                        <div class="mt-1 grid gap-3">
+                            <div id="move-controls" class="flex flex-wrap gap-2.5" {% if promote %}hidden{% endif %}>
+                                <button id="btn-castle" type="button" class="rounded-full border border-[#7a4a31]/20 bg-accent px-5 py-3 text-sm font-medium text-white shadow-button transition duration-150 hover:bg-accentDark disabled:cursor-not-allowed disabled:opacity-55 disabled:shadow-none">Castle</button>
+                                <button id="btn-reset" type="button" class="secondary-button rounded-full border border-black/10 bg-black/[0.04] px-5 py-3 text-sm font-medium text-ink transition duration-150 hover:bg-black/[0.07] disabled:cursor-not-allowed disabled:opacity-55">Reset Game</button>
+                            </div>
+                            <form action="{{ url_for('promote') }}" method="post" class="promotion-form grid gap-2.5" {% if not promote %}hidden{% endif %}>
+                                <label for="promotion_piece" class="text-sm font-medium text-ink">Promote to</label>
+                                <select name="promotion_piece" id="promotion_piece" class="promotion-dropdown min-h-[46px] w-full rounded-[14px] border border-black/10 bg-white px-4 text-ink outline-none">
+                                    <option value="QUEEN">Queen</option>
+                                    <option value="ROOK">Rook</option>
+                                    <option value="BISHOP">Bishop</option>
+                                    <option value="KNIGHT">Knight</option>
+                                </select>
+                                <button type="submit" class="w-fit rounded-full border border-[#7a4a31]/20 bg-accent px-5 py-3 text-sm font-medium text-white shadow-button transition duration-150 hover:bg-accentDark disabled:cursor-not-allowed disabled:opacity-55 disabled:shadow-none">Confirm</button>
+                            </form>
+                        </div>
+                    </section>
+
+                    <section class="panel-card rounded-[24px] border border-black/8 bg-white/55 p-5 shadow-card">
+                        <h2 class="text-base font-semibold text-ink">How to play</h2>
+                        <ul class="list-disc space-y-2 pl-5 text-sm leading-7 text-muted">
+                            <li>Click one of your pieces to select it.</li>
+                            <li>Click another own piece to switch selection.</li>
+                            <li>Use the castle button when castling is legal in the current position.</li>
+                        </ul>
+                    </section>
+                </aside>
             </div>
         </div>
     </div>
 
-    <!-- Toasts live here -->
     <div id="toast-root" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

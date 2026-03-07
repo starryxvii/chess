@@ -1,15 +1,11 @@
-// ----------------------
-// Toasts (no dependency)
-// ----------------------
 const Toast = (() => {
   const rootId = "toast-root";
   const icons = {
-    info: "ℹ️",
-    success: "✅",
-    warning: "⚠️",
-    error: "⛔",
-    check: "♟️",
-    mate: "♚",
+    info: "i",
+    success: "+",
+    warning: "!",
+    error: "x",
+    mate: "#",
   };
 
   function ensureRoot() {
@@ -22,286 +18,453 @@ const Toast = (() => {
     return root;
   }
 
-  function show(message, type = "info", opts = {}) {
-    const { timeout = 2800, persist = false } = opts;
-    const root = ensureRoot();
-
-    const toast = document.createElement("div");
-    toast.className = `toast toast-${type}`;
-    toast.setAttribute("role", "status");
-
-    const icon = document.createElement("span");
-    icon.className = "toast-icon";
-    icon.textContent = icons[type] || icons.info;
-
-    const text = document.createElement("div");
-    text.className = "toast-text";
-    text.textContent = message;
-
-    const close = document.createElement("button");
-    close.className = "toast-close";
-    close.setAttribute("aria-label", "Close notification");
-    close.innerHTML = "&times;";
-    close.onclick = () => dismiss(toast);
-
-    toast.appendChild(icon);
-    toast.appendChild(text);
-    toast.appendChild(close);
-
-    root.appendChild(toast);
-
-    // Enter animation
-    requestAnimationFrame(() => {
-      toast.classList.add("in");
-    });
-
-    if (!persist) {
-      setTimeout(() => dismiss(toast), timeout);
-    }
-    return toast;
-  }
-
   function dismiss(node) {
-    if (!node) return;
+    if (!node) {
+      return;
+    }
     node.classList.remove("in");
     node.classList.add("out");
     node.addEventListener(
       "animationend",
-      () => node.parentElement && node.parentElement.removeChild(node),
+      () => {
+        if (node.parentElement) {
+          node.parentElement.removeChild(node);
+        }
+      },
       { once: true }
     );
+  }
+
+  function show(message, type = "info", options = {}) {
+    const { timeout = 2800, persist = false } = options;
+    const root = ensureRoot();
+    const toast = document.createElement("div");
+    const icon = document.createElement("span");
+    const text = document.createElement("div");
+    const close = document.createElement("button");
+
+    toast.className = `toast toast-${type}`;
+    toast.setAttribute("role", "status");
+
+    icon.className = "toast-icon";
+    icon.textContent = icons[type] || icons.info;
+
+    text.className = "toast-text";
+    text.textContent = message;
+
+    close.className = "toast-close";
+    close.type = "button";
+    close.setAttribute("aria-label", "Close notification");
+    close.innerHTML = "&times;";
+    close.addEventListener("click", () => dismiss(toast));
+
+    toast.append(icon, text, close);
+    root.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add("in"));
+
+    if (!persist) {
+      window.setTimeout(() => dismiss(toast), timeout);
+    }
+
+    return toast;
   }
 
   return { show, dismiss };
 })();
 
-// ----------------------
-// Game UI logic
-// ----------------------
-let selectedPiece = null;   // piece name like 'p2' or 'N1'
-let promotionOpen = false;
+const state = {
+  selectedPiece: null,
+  promotionOpen: false,
+  requestInFlight: false,
+};
 
-function qs(sel, root = document) {
-  return root.querySelector(sel);
+const dom = {};
+
+function qs(selector, root = document) {
+  return root.querySelector(selector);
 }
 
-function qsa(sel, root = document) {
-  return Array.from(root.querySelectorAll(sel));
+function qsa(selector, root = document) {
+  return Array.from(root.querySelectorAll(selector));
+}
+
+function cacheDom() {
+  dom.body = document.body;
+  dom.cells = qsa(".chess-board td");
+  dom.turnValue = qs(".turn-display span");
+  dom.statusTitle = qs("#status-title");
+  dom.statusCopy = qs("#status-copy");
+  dom.moveControls = qs("#move-controls");
+  dom.promotionForm = qs(".promotion-form");
+  dom.promotionSelect = qs("#promotion_piece");
+  dom.castleButton = qs("#btn-castle");
+  dom.resetButton = qs("#btn-reset");
 }
 
 function setTurn(turn) {
-  const turnSpan = qs(".turn-display span");
-  if (turnSpan) turnSpan.textContent = turn;
-  document.body.setAttribute("data-turn", turn);
+  if (dom.turnValue) {
+    dom.turnValue.textContent = turn;
+  }
+  if (dom.body) {
+    dom.body.dataset.turn = turn;
+  }
 }
 
 function isPlayersTurn() {
-  return document.body.getAttribute("data-turn") === "player";
+  return document.body.dataset.turn === "player";
+}
+
+function setBusy(isBusy) {
+  state.requestInFlight = isBusy;
+  document.body.dataset.busy = isBusy ? "true" : "false";
+  if (dom.castleButton) {
+    dom.castleButton.disabled = isBusy;
+  }
+  if (dom.resetButton) {
+    dom.resetButton.disabled = isBusy;
+  }
+  if (dom.promotionSelect) {
+    dom.promotionSelect.disabled = isBusy;
+  }
+  if (dom.promotionForm) {
+    const submitButton = qs('button[type="submit"]', dom.promotionForm);
+    if (submitButton) {
+      submitButton.disabled = isBusy;
+    }
+  }
+}
+
+function renderStatus(title, copy) {
+  if (dom.statusTitle) {
+    dom.statusTitle.textContent = title;
+  }
+  if (dom.statusCopy) {
+    dom.statusCopy.textContent = copy;
+  }
+}
+
+function syncControls() {
+  if (dom.moveControls) {
+    dom.moveControls.hidden = state.promotionOpen;
+  }
+  if (dom.promotionForm) {
+    dom.promotionForm.hidden = !state.promotionOpen;
+  }
+}
+
+function showPromotionForm() {
+  state.promotionOpen = true;
+  syncControls();
+  renderStatus("Promotion required", "Choose a piece to finish the move.");
+  if (dom.promotionSelect) {
+    dom.promotionSelect.focus();
+  }
+}
+
+function hidePromotionForm() {
+  state.promotionOpen = false;
+  syncControls();
+  if (isPlayersTurn()) {
+    renderStatus("Your move", "Select one of your pieces, then click the destination square.");
+  } else {
+    renderStatus("Bot is thinking", "Waiting for the engine to reply.");
+  }
 }
 
 async function postJson(url, payload) {
-  const resp = await fetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload || {}),
   });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data?.status || `HTTP ${resp.status}`);
+
+  let data = {};
+  try {
+    data = await response.json();
+  } catch (_error) {
+    data = {};
+  }
+
+  if (!response.ok) {
+    throw new Error(data.status || `HTTP ${response.status}`);
+  }
+
   return data;
 }
 
 function resetGame() {
-  window.location.href = "/"; // reset via server
+  if (state.requestInFlight) {
+    return;
+  }
+  window.location.href = "/";
 }
 
-function updateBoard(board, turn) {
-  const cells = document.querySelectorAll(".chess-board td");
-  for (let i = 0; i < cells.length; i++) {
-    const piece = board[i];
-    if (piece) {
-      const t = piece[0].toLowerCase(); // 'p','r',...
-      const colorClass = piece[0] === piece[0].toUpperCase() ? "black-piece" : "white-piece";
-      cells[i].innerHTML = `<img src="/static/icons/${t}.svg" class="${colorClass}" alt="${piece}" />`;
-    } else {
-      cells[i].innerHTML = "";
+function clearSelection() {
+  state.selectedPiece = null;
+  dom.cells.forEach((cell) => cell.classList.remove("selected"));
+}
+
+function selectCell(cell, piece) {
+  clearSelection();
+  state.selectedPiece = piece;
+  cell.classList.add("selected");
+  renderStatus("Piece selected", "Choose a destination square, or click another of your pieces to change selection.");
+}
+
+function updateBoard(board, turn, botWhite) {
+  dom.cells.forEach((cell, index) => {
+    const piece = board[index];
+    if (!piece) {
+      cell.innerHTML = "";
+      return;
     }
+
+    const type = piece[0].toLowerCase();
+    const colorClass = piece[0] === piece[0].toUpperCase() ? "black-piece" : "white-piece";
+    cell.innerHTML = `<img src="/static/icons/${type}.svg" class="piece ${colorClass}" alt="${piece}">`;
+  });
+
+  if (typeof botWhite === "boolean") {
+    document.body.dataset.botwhite = String(botWhite);
   }
   setTurn(turn);
 }
 
-function showPromotionForm() {
-  promotionOpen = true;
-  const form = qs(".promotion-form");
-  if (form) form.style.display = "block";
-}
-
-function hidePromotionForm() {
-  promotionOpen = false;
-  const form = qs(".promotion-form");
-  if (form) form.style.display = "none";
-}
-
-function notifyCheckIfAny(resp) {
-  if (resp && resp.in_check === true) {
-    const side = resp.turn; // side to move (and in check)
-    Toast.show(`${side.toUpperCase()} is in check!`, "warning", { timeout: 2200 });
+function notifyCheckIfAny(response) {
+  if (response?.in_check) {
+    Toast.show(`${response.turn.toUpperCase()} is in check.`, "warning", { timeout: 2200 });
   }
 }
 
-function makeMove(moveInput) {
-  if (!moveInput) return;
-  postJson("/make_move", { move: moveInput })
-    .then((response) => {
-      updateBoard(response.board, response.turn);
-      switch (response.status) {
-        case "success":
-        case "castle":
-          notifyCheckIfAny(response);
-          if (response.turn === "bot") botMove();
-          break;
-        case "promote":
-          Toast.show("Pawn reached last rank — choose a promotion.", "info", { timeout: 2500 });
-          showPromotionForm();
-          break;
-        case "checkmate":
-          Toast.show(`Checkmate! Winner: ${response.winner}`, "mate", { timeout: 1800 });
-          setTimeout(resetGame, 1400);
-          break;
-        case "stalemate":
-          Toast.show("Stalemate — draw.", "info", { timeout: 2000 });
-          setTimeout(resetGame, 1400);
-          break;
-        case "invalid-castle":
-          Toast.show("Castling is not legal in this position.", "error", { timeout: 2600 });
-          break;
-        default:
-          Toast.show(response.status || "Invalid move.", "error", { timeout: 2200 });
-      }
-    })
-    .catch(() => {
-      Toast.show("Error making move.", "error", { timeout: 2400 });
-    });
+function describeError(status) {
+  switch (status) {
+    case "invalid":
+      return "That move is not legal.";
+    case "invalid-castle":
+      return "Castling is not legal in this position.";
+    case "self-check":
+      return "That move leaves your king in check.";
+    case "game-over":
+      return "The game is already over.";
+    case "no-session":
+      return "Your session expired. Starting a new game.";
+    default:
+      return "Something went wrong.";
+  }
 }
 
-function sendPromotion(choice) {
-  postJson("/promote", { piece: choice })
-    .then((response) => {
-      updateBoard(response.board, response.turn);
-      hidePromotionForm();
-
-      if (response.status === "checkmate") {
-        Toast.show(`Checkmate! Winner: ${response.winner}`, "mate", { timeout: 1800 });
-        setTimeout(resetGame, 1400);
-        return;
-      }
-      if (response.status === "stalemate") {
-        Toast.show("Stalemate — draw.", "info", { timeout: 2000 });
-        setTimeout(resetGame, 1400);
-        return;
-      }
-      if (response.status === "promoted") {
-        Toast.show("Pawn promoted.", "success", { timeout: 1600 });
-        notifyCheckIfAny(response);
-        if (response.turn === "bot") botMove();
-      }
-    })
-    .catch(() => {
-      Toast.show("Error promoting pawn.", "error", { timeout: 2400 });
-    });
+function scheduleReset(message, timeout = 1400) {
+  if (message) {
+    Toast.show(message, "mate", { timeout });
+  }
+  window.setTimeout(resetGame, timeout);
 }
 
-function botMove() {
-  postJson("/bot_move")
-    .then((response) => {
-      updateBoard(response.board, response.turn);
-      if (response.status === "checkmate") {
-        Toast.show(`Checkmate! Winner: ${response.winner}`, "mate", { timeout: 1800 });
-        setTimeout(resetGame, 1400);
-      } else if (response.status === "stalemate") {
-        Toast.show("Stalemate — draw.", "info", { timeout: 2000 });
-        setTimeout(resetGame, 1400);
-      } else if (response.status === "success") {
-        notifyCheckIfAny(response);
-      } else if (response.status === "error") {
-        Toast.show("Bot couldn't find a valid move.", "error", { timeout: 2200 });
-      }
-    })
-    .catch(() => {
-      Toast.show("Error with bot move.", "error", { timeout: 2400 });
-    });
+function handleTerminalState(response) {
+  if (response.status === "checkmate") {
+    renderStatus("Checkmate", `${response.winner || "Unknown"} wins.`);
+    scheduleReset(`Checkmate! Winner: ${response.winner || "unknown"}`, 1800);
+    return true;
+  }
+
+  if (response.status === "stalemate") {
+    renderStatus("Stalemate", "No legal moves remain.");
+    Toast.show("Stalemate. Draw.", "info", { timeout: 1800 });
+    window.setTimeout(resetGame, 1400);
+    return true;
+  }
+
+  return false;
 }
 
-// Keep a callable function if template uses inline onclick
+async function requestAndHandle(url, payload) {
+  if (state.requestInFlight) {
+    return null;
+  }
+
+  setBusy(true);
+  try {
+    const response = await postJson(url, payload);
+    updateBoard(response.board, response.turn, response.botWhite);
+    clearSelection();
+    return response;
+  } catch (error) {
+    if (error.message === "no-session") {
+      Toast.show(describeError(error.message), "error", { timeout: 2200 });
+      window.setTimeout(resetGame, 600);
+    } else {
+      Toast.show(describeError(error.message), "error", { timeout: 2400 });
+      renderStatus("Action failed", describeError(error.message));
+    }
+    return null;
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function botMove() {
+  renderStatus("Bot is thinking", "Waiting for the engine to reply.");
+  const response = await requestAndHandle("/bot_move");
+  if (!response) {
+    return;
+  }
+
+  if (handleTerminalState(response)) {
+    return;
+  }
+
+  if (response.status === "success") {
+    notifyCheckIfAny(response);
+    renderStatus("Your move", "Select one of your pieces, then click the destination square.");
+    return;
+  }
+
+  if (response.status === "error") {
+    Toast.show("Bot could not find a valid move.", "error", { timeout: 2200 });
+    renderStatus("Engine error", "The bot did not return a legal reply.");
+  }
+}
+
+async function sendPromotion(choice) {
+  const response = await requestAndHandle("/promote", { piece: choice });
+  if (!response) {
+    return;
+  }
+
+  hidePromotionForm();
+
+  if (handleTerminalState(response)) {
+    return;
+  }
+
+  if (response.status === "promoted") {
+    Toast.show("Pawn promoted.", "success", { timeout: 1600 });
+    notifyCheckIfAny(response);
+    if (response.turn === "bot") {
+      await botMove();
+    }
+  }
+}
+
+async function makeMove(moveInput) {
+  const response = await requestAndHandle("/make_move", { move: moveInput });
+  if (!response) {
+    return;
+  }
+
+  if (handleTerminalState(response)) {
+    return;
+  }
+
+  switch (response.status) {
+    case "success":
+    case "castle":
+      notifyCheckIfAny(response);
+      if (response.turn === "bot") {
+        await botMove();
+      }
+      break;
+    case "promote":
+      Toast.show("Pawn reached the last rank.", "info", { timeout: 2200 });
+      showPromotionForm();
+      break;
+    default:
+      Toast.show(describeError(response.status), "error", { timeout: 2400 });
+      renderStatus("Illegal move", describeError(response.status));
+      break;
+  }
+}
+
+function onBoardClick(cell) {
+  if (state.requestInFlight || state.promotionOpen || !isPlayersTurn()) {
+    return;
+  }
+
+  const image = qs("img", cell);
+  const piece = image ? image.getAttribute("alt") : null;
+  const cellIndex = Number.parseInt(cell.dataset.index || cell.id.split("-")[1], 10);
+
+  if (!state.selectedPiece) {
+    if (!piece || piece[0] !== piece[0].toLowerCase()) {
+      return;
+    }
+    selectCell(cell, piece);
+    return;
+  }
+
+  if (piece && piece[0] === piece[0].toLowerCase()) {
+    selectCell(cell, piece);
+    return;
+  }
+
+  const moveInput = `${state.selectedPiece} ${cellIndex}`;
+  clearSelection();
+  makeMove(moveInput);
+}
+
 function castleMove() {
-  if (!isPlayersTurn() || promotionOpen) return;
+  if (state.requestInFlight || state.promotionOpen || !isPlayersTurn()) {
+    return;
+  }
   makeMove("castle");
 }
 
-function clearSelection() {
-  qsa(".chess-board td.selected").forEach((td) => td.classList.remove("selected"));
+function hydrateGithubLinks() {
+  qsa(".github-link").forEach((link) => {
+    const url = link.getAttribute("data-url") ||
+                link.getAttribute("href") ||
+                "";
+    const match = url.match(/github\.com\/([^\/]+)\/?$/);
+    if (match) {
+      link.textContent = match[1];
+    }
+  });
+}
+
+function bindEvents() {
+  dom.cells.forEach((cell) => {
+    cell.addEventListener("click", () => onBoardClick(cell));
+  });
+
+  if (dom.castleButton) {
+    dom.castleButton.addEventListener("click", castleMove);
+  }
+
+  if (dom.resetButton) {
+    dom.resetButton.addEventListener("click", resetGame);
+  }
+
+  if (dom.promotionForm) {
+    dom.promotionForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const choice = (dom.promotionSelect?.value || "QUEEN").toUpperCase();
+      sendPromotion(choice);
+    });
+  }
+}
+
+function initializeStatus() {
+  state.promotionOpen = Boolean(dom.promotionForm && !dom.promotionForm.hidden);
+  syncControls();
+
+  if (state.promotionOpen) {
+    renderStatus("Promotion required", "Choose a piece to finish the move.");
+    return;
+  }
+
+  if (isPlayersTurn()) {
+    renderStatus("Your move", "Select one of your pieces, then click the destination square.");
+  } else {
+    renderStatus("Bot is thinking", "Waiting for the engine to reply.");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  hidePromotionForm();
-
-  // Promotion form handler (if present in template)
-  const promotionForm = qs(".promotion-form");
-  if (promotionForm) promotionForm.addEventListener("submit", function (e) {
-    e.preventDefault();
-    const sel = qs("#promotion_piece");
-    const choice = ((sel && sel.value) || "QUEEN").toUpperCase();
-    sendPromotion(choice);
-  });
-
-  qsa(".chess-board td").forEach((cell) => cell.addEventListener("click", function () {
-    // block clicks if it's not the player's turn or promotion dialog is open
-    if (!isPlayersTurn() || promotionOpen) return;
-
-    const cellIndex = parseInt(this.id.split("-")[1], 10);
-    const img = qs("img", this);
-    const piece = img ? img.getAttribute("alt") : null;
-
-    // First click: select a player piece (lowercase name)
-    if (!selectedPiece) {
-      if (!piece || piece[0] !== piece[0].toLowerCase()) {
-        // not a player piece
-        return;
-      }
-      selectedPiece = piece;
-      clearSelection();
-      this.classList.add("selected");
-      return;
-    }
-
-    // Clicking another player's piece switches selection
-    if (piece && piece[0] === piece[0].toLowerCase()) {
-      clearSelection();
-      selectedPiece = piece;
-      this.classList.add("selected");
-      return;
-    }
-
-    // Attempt a move: "<piece> <destIndex>"
-    const moveInput = `${selectedPiece} ${cellIndex}`;
-    selectedPiece = null;
-    clearSelection();
-    makeMove(moveInput);
-  }));
-
-  qsa(".chess-board td").forEach((cell) => {
-    cell.addEventListener("mouseenter", () => cell.classList.add("hover"));
-    cell.addEventListener("mouseleave", () => cell.classList.remove("hover"));
-  });
-
-  // Buttons (works with or without inline onclicks)
-  const btnCastle = qs("#btn-castle");
-  if (btnCastle) btnCastle.addEventListener("click", castleMove);
-  const btnReset = qs("#btn-reset");
-  if (btnReset) btnReset.addEventListener("click", resetGame);
-
-  qsa(".github-link").forEach((link) => {
-    const url = link.getAttribute("data-url") || link.getAttribute("href") || "";
-    const username = (url.split("github.com/")[1] || "").split("/")[0] || "GitHub";
-    link.textContent = username;
-  });
+  cacheDom();
+  bindEvents();
+  hydrateGithubLinks();
+  initializeStatus();
 });
+
+window.resetGame = resetGame;
+window.castleMove = castleMove;

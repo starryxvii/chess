@@ -370,6 +370,25 @@ def findSquare(square: str):
     except Exception:
         return False
 
+def castle_start_positions(botWhite, turn):
+    if botWhite:
+        if turn == 'bot':
+            return {'king': ('K', 60), 'rook': ('R2', 63), 'through': 61, 'dest': 62, 'empty': (61, 62)}
+        return {'king': ('k', 4), 'rook': ('r2', 7), 'through': 5, 'dest': 6, 'empty': (5, 6)}
+    if turn == 'bot':
+        return {'king': ('K', 59), 'rook': ('R1', 56), 'through': 58, 'dest': 57, 'empty': (57, 58)}
+    return {'king': ('k', 3), 'rook': ('r1', 0), 'through': 2, 'dest': 1, 'empty': (1, 2)}
+
+def _board_with_king_at(board, turn, dest):
+    king_piece = 'K' if turn == 'bot' else 'k'
+    src = findPiece(king_piece, board)
+    if src == -1:
+        return None
+    b = list(board)
+    b[src] = None
+    b[dest] = king_piece
+    return tuple(b)
+
 def castle(turn, board, botWhite):
     b = list(board)
     if botWhite:
@@ -388,25 +407,33 @@ def castle(turn, board, botWhite):
                 b[3], b[1], b[0], b[2] = None, 'k', None, 'r1'
     return tuple(b)
 
-def castleValidate(botWhite, turn, board):
-    if botWhite:
-        if turn == 'bot':
-            kingPos, rookPos, path = 60, 63, [60, 61, 62]
-            if board[kingPos] != 'K' or board[rookPos] != 'R2' or board[61] or board[62]: return False
-        else:
-            kingPos, rookPos, path = 4, 7, [4, 5, 6]
-            if board[kingPos] != 'k' or board[rookPos] != 'r2' or board[5] or board[6]: return False
-    else:
-        if turn == 'bot':
-            kingPos, rookPos, path = 59, 56, [59, 58, 57]
-            if board[kingPos] != 'K' or board[rookPos] != 'R1' or board[58] or board[57]: return False
-        else:
-            kingPos, rookPos, path = 3, 0, [3, 2, 1]
-            if board[kingPos] != 'k' or board[rookPos] != 'r1' or board[2] or board[1]: return False
-    if not isKingSafe(board, turn): return False
-    for pos in path:
-        if not isKingSafe(board, turn, pos): return False
-    return True
+def castleValidate(botWhite, turn, board, castlingRights=None):
+    if castlingRights is not None and not castlingRights.get(turn, False):
+        return False
+
+    layout = castle_start_positions(botWhite, turn)
+    king_piece, kingPos = layout['king']
+    rook_piece, rookPos = layout['rook']
+    through = layout['through']
+    dest = layout['dest']
+
+    if board[kingPos] != king_piece or board[rookPos] != rook_piece:
+        return False
+    if any(board[i] is not None for i in layout['empty']):
+        return False
+    if not isKingSafe(board, turn):
+        return False
+
+    through_board = _board_with_king_at(board, turn, through)
+    if through_board is None or not isKingSafe(through_board, turn):
+        return False
+
+    final_board = castle(turn, board, botWhite)
+    if final_board == board or not isKingSafe(final_board, turn):
+        return False
+
+    # Final sanity check that the king reaches the expected destination.
+    return final_board[dest] == king_piece
 
 def detectCheckmate(board, turn, botWhite, gameStates):
     team_moves = getAllTeamMoves(turn, board, botWhite, gameStates)
